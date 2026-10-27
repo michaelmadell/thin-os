@@ -1,0 +1,35 @@
+# ==========================
+# 1. OS Builder (live-build)
+# ==========================
+os-builder/chroot/
+os-builder/chroot.out/
+os-builder/binary/
+os-builder/.build/
+os-builder/cache/
+os-builder/local/
+os-builder/*.iso
+os-builder/*.squashfs
+os-builder/*.img
+os-builder/*.tar.gz
+os-builder/*.log
+os-builder/*.packages
+
+# (Optional) Ignore large proprietary .deb files if they exceed GitHub's 100MB limit
+# os-builder/config/packages.chroot/*.deb
+
+# ==========================
+# 2. Go Binaries & DBs
+# ==========================
+kiosk-agent/thin-kiosk-agent
+management-server/thin-management-server
+management-server/*.exe
+management-server/*.db
+management-server/*.db-journal
+
+# ==========================
+# 3. General & OS Noise
+# ==========================
+.DS_Store
+Thumbs.db
+*.log
+os-builder/config/packages.chroot/*.deb

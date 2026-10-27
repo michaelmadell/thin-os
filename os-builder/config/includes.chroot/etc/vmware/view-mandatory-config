@@ -1,0 +1,9 @@
+# Enable Intel/NVIDIA Hardware Decoding (Blast H.264 / HEVC / AV1)
+view.enableH264 = "TRUE"
+view.enableHEVC = "TRUE"
+view.enableAV1 = "TRUE"
+view.hwAccel.enable = "TRUE"
+
+# Enable Microsoft Teams / Zoom WebRTC Media Optimization (RTAV)
+rtc.enable = "TRUE"
+view.rtavEnable = "TRUE"

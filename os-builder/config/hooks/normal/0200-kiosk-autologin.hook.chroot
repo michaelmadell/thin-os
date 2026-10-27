@@ -1,0 +1,47 @@
+#!/bin/sh
+set -e
+
+mkdir -p /etc/X11
+cat << 'XEOF' > /etc/X11/Xwrapper.config
+allowed_users=anybody
+needs_root_rights=yes
+XEOF
+
+cat << 'PROFEOF' > /etc/skel/.bash_profile
+if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+    exec startx
+fi
+PROFEOF
+
+cat << 'XINITEOF' > /etc/skel/.xinitrc
+#!/bin/sh
+exec /opt/thinclient/bin/kiosk-session.sh
+XINITEOF
+chmod +x /etc/skel/.xinitrc
+
+if ! id -u kiosk >/dev/null 2>&1; then
+    useradd -m -u 1000 -s /bin/bash -G video,render,audio,plugdev,netdev,input,sudo kiosk
+fi
+passwd -d kiosk
+
+cp /etc/skel/.bash_profile /home/kiosk/.bash_profile
+cp /etc/skel/.xinitrc /home/kiosk/.xinitrc
+chown -R kiosk:kiosk /home/kiosk
+
+mkdir -p /lib/live/config
+rm -f /lib/live/config/*user-setup* || true
+
+mkdir -p /etc/systemd/system/getty@tty1.service.d
+cat << 'GETTYEOF' > /etc/systemd/system/getty@tty1.service.d/override.conf
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin kiosk --noclear %I $TERM
+GETTYEOF
+
+# 7. Pre-accept Citrix Workspace and Omnissa Horizon EULAs for the stateless kiosk user
+mkdir -p /etc/skel/.ICAClient /home/kiosk/.ICAClient
+touch /etc/skel/.ICAClient/.eula_accepted /home/kiosk/.ICAClient/.eula_accepted
+
+mkdir -p /etc/skel/.vmware /home/kiosk/.vmware
+echo 'view.eulaAccepted = "TRUE"' >> /etc/vmware/view-mandatory-config
+chown -R kiosk:kiosk /home/kiosk/.ICAClient /home/kiosk/.vmware

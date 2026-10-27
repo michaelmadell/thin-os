@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ThinClient Kiosk</title>
+<style>
+  :root {
+    --bg: #1e1e1e; --panel: #2d2d2d; --card: #383838; --border: #454545;
+    --text: #ffffff; --muted: #aaaaaa; --accent: #3584e4; --accent-hover: #1b71db;
+    --suggested: #3584e4; --suggested-hover: #1b71db; --warn: #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; font-family: system-ui, -apple-system, sans-serif; }
+  body { background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* GTK Header Bar */
+  .header-bar {
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; min-height: 48px;
+  }
+  .header-left, .header-right { display: flex; gap: 8px; align-items: center; }
+  .header-title { font-weight: 600; font-size: 0.95rem; color: var(--text); }
+  .badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: rgba(53,132,228,0.2); color: var(--accent); border: 1px solid rgba(53,132,228,0.4); }
+
+  /* GTK Buttons */
+  button {
+    background: var(--card); color: var(--text); border: 1px solid var(--border);
+    padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 0.85rem;
+    transition: background 0.1s, border-color 0.1s; box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  }
+  button:hover { background: #424242; border-color: #555; }
+  button.suggested-action { background: var(--suggested); color: #fff; border-color: #1a73e8; }
+  button.suggested-action:hover { background: var(--suggested-hover); }
+
+  /* GTK Inputs */
+  input, select {
+    background: #141414; color: var(--text); border: 1px solid var(--border);
+    padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; transition: border-color 0.1s;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+
+  /* Main Content Area */
+  .content-area { flex: 1; padding: 24px; overflow-y: auto; max-width: 1000px; width: 100%; margin: 0 auto; }
+  h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 6px; }
+  .subtitle { color: var(--muted); margin-bottom: 20px; font-size: 0.85rem; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+  .app-card, .conn-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 18px;
+    cursor: pointer; display: flex; flex-direction: column; justify-content: space-between;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2); transition: transform 0.1s, border-color 0.1s;
+  }
+  .app-card:hover, .conn-card:hover { border-color: var(--accent); }
+  .app-icon { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1rem; margin-bottom: 12px; }
+  .horizon-bg { background: rgba(16,185,129,0.2); color: #34d399; }
+  .citrix-bg { background: rgba(53,132,228,0.2); color: #62a0ea; }
+  .dcv-bg { background: rgba(245,158,11,0.2); color: #f6d32d; }
+  .rdp-bg { background: rgba(139,92,246,0.2); color: #bc8adc; }
+
+  .ephemeral-box { margin-top: 24px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+  .form-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .form-row input { flex: 1; min-width: 160px; }
+
+  /* GTK Footer / Status Bar */
+  footer { background: var(--panel); border-top: 1px solid var(--border); padding: 6px 16px; font-size: 0.8rem; color: var(--muted); display: flex; justify-content: space-between; }
+
+  /* Modals */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 50; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; width: 90%; max-width: 650px; max-height: 80vh; overflow-y: auto; padding: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+  .login-modal { max-width: 400px; }
+  .field-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+  .field-group label { font-size: 0.8rem; color: var(--muted); }
+  pre { background: #141414; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.75rem; color: #dedede; overflow-x: auto; margin-top: 6px; border: 1px solid var(--border); }
+  .usb-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .default-star { color: var(--warn); font-size: 0.75rem; font-weight: 600; }
+</style>
+</head>
+<body>
+
+  <!-- GTK Header Bar -->
+  <header class="header-bar">
+    <div class="header-left">
+      <button id="backBtn" style="display:none;" onclick="showAppSelector()">← Back</button>
+      <span class="header-title">ThinClient Kiosk</span>
+      <span id="profileBadge" class="badge">Loading...</span>
+    </div>
+    <div class="header-right">
+      <button onclick="openMgmtModal()">Server Config</button>
+      <button id="usbBtn" onclick="openSettingsModal()">Peripherals</button>
+      <button onclick="location.reload()">Reload UI</button>
+      <button class="suggested-action" onclick="openTerminal()">Terminal</button>
+    </div>
+  </header>
+
+  <!-- Main App Content Area -->
+  <main class="content-area">
+    <div id="appSelectorView" style="display:none;">
+      <h2>VDI Workspaces</h2>
+      <p class="subtitle">Select an enabled protocol client to view available connections.</p>
+      <div id="appGrid" class="grid"></div>
+    </div>
+
+    <div id="connectionsView" style="display:none;">
+      <h2 id="connViewTitle">Connections</h2>
+      <p class="subtitle">Choose a target connection below.</p>
+      <div id="connGrid" class="grid"></div>
+
+      <div id="ephemeralBox" class="ephemeral-box" style="display:none;">
+        <h3 style="font-size: 1rem; font-weight: 600;">Quick Connect (Ephemeral Session)</h3>
+        <div class="form-row">
+          <input type="text" id="ephServer" placeholder="Server URL / IP:Port" />
+          <input type="text" id="ephDomain" placeholder="Domain" />
+          <input type="text" id="ephUser" placeholder="Username" />
+          <button class="suggested-action" onclick="launchEphemeral()">Connect</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- GTK Footer / Status Bar -->
+  <footer>
+    <span id="statusText">Ready</span>
+    <span>RAM Root Mode</span>
+  </footer>
+
+  <!-- MANAGEMENT SERVER CONFIG MODAL -->
+  <div id="mgmtModal" class="modal-backdrop">
+    <div class="modal login-modal">
+      <h3 style="margin-bottom:6px; font-size:1.1rem;">Central Management Server</h3>
+      <p style="color:var(--muted); font-size:0.8rem; margin-bottom:14px;">Point this client to a new policy server.</p>
+      <div class="field-group">
+        <label>Server URL</label>
+        <input type="text" id="mgmtUrlInput" placeholder="http://10.0.2.2:9090" />
+      </div>
+      <p style="color:var(--warn); font-size:0.75rem; margin-top:8px;">Note: Because this OS runs in RAM (toram), manual changes here will reset on reboot unless set via DHCP/iPXE boot parameters.</p>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+        <button onclick="closeMgmtModal()">Cancel</button>
+        <button class="suggested-action" onclick="saveMgmtServer()">Update Server</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RDP NLA CREDENTIALS MODAL -->
+  <div id="rdpModal" class="modal-backdrop">
+    <div class="modal login-modal">
+      <h3 id="rdpModalTitle" style="margin-bottom:4px; font-size:1.1rem;">RDP Authentication</h3>
+      <p id="rdpModalServer" style="color:var(--muted); font-size:0.8rem; margin-bottom:14px;"></p>
+      <div class="field-group">
+        <label>Username</label>
+        <input type="text" id="rdpUser" placeholder="Username" />
+      </div>
+      <div class="field-group">
+        <label>Password</label>
+        <input type="password" id="rdpPass" placeholder="Password" />
+      </div>
+      <div class="field-group">
+        <label>Domain</label>
+        <input type="text" id="rdpDomain" placeholder="Domain" />
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+        <button onclick="closeRdpModal()">Cancel</button>
+        <button class="suggested-action" onclick="confirmRdpLaunch()">Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PERIPHERALS MODAL -->
+  <div id="settingsModal" class="modal-backdrop">
+    <div class="modal">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <h3 style="font-size:1.1rem;">Peripherals & Display Hardware</h3>
+        <button onclick="closeSettingsModal()">Close</button>
+      </div>
+      <h4 style="font-size:0.9rem; margin-bottom:6px;">Composite USB & Bloomberg Rules</h4>
+      <div id="usbRulesList" style="margin-bottom:16px;"></div>
+      <h4 style="font-size:0.9rem; margin-bottom:4px;">Attached USB Devices (lsusb)</h4>
+      <pre id="lsusbOutput">Scanning...</pre>
+      <h4 style="font-size:0.9rem; margin-top:12px; margin-bottom:4px;">Displays (xrandr)</h4>
+      <pre id="xrandrOutput">Scanning...</pre>
+    </div>
+  </div>
+
+  <script>
+    const APP_META = {
+      horizon: { name: "Omnissa Horizon", desc: "Blast Extreme H.264/HEVC + RTAV", cls: "horizon-bg", short: "HZ" },
+      citrix:  { name: "Citrix Workspace", desc: "HDX 3D Pro + USB Split", cls: "citrix-bg", short: "CX" },
+      dcv:     { name: "Amazon DCV", desc: "QUIC/UDP High-Frame-Rate 3D", cls: "dcv-bg", short: "DCV" },
+      rdp:     { name: "Microsoft RDP", desc: "FreeRDP3 AVC444 + SmartCard", cls: "rdp-bg", short: "RDP" }
+    };
+
+    let policy = null;
+    let selectedApp = null;
+    let hasAutoLaunched = false;
+    let pendingRdpConn = null;
+    let currentMgmtServer = "";
+
+    async function fetchPolicy() {
+      try {
+        const res = await fetch('/api/policy');
+        const data = await res.json();
+        policy = data.policy;
+        currentMgmtServer = data.server_url;
+        document.getElementById('statusText').textContent = data.status || "Ready";
+        renderUI();
+      } catch (e) {}
+    }
+
+    function renderUI() {
+      if (!policy) return;
+      document.getElementById('profileBadge').textContent = policy.profile_name;
+      document.getElementById('usbBtn').style.display = policy.kiosk_mode.allow_local_usb_config ? 'inline-block' : 'none';
+      const enabled = policy.enabled_apps || [];
+
+      if (!hasAutoLaunched && policy.kiosk_mode.auto_launch_default_connection && policy.default_connection_id) {
+        const defConn = (policy.connections || []).find(c => c.id === policy.default_connection_id);
+        if (defConn && enabled.includes(defConn.app)) {
+          hasAutoLaunched = true;
+          handleConnectionClick(defConn);
+        }
+      }
+
+      if (enabled.length === 1) {
+        selectedApp = enabled[0];
+        document.getElementById('backBtn').style.display = 'none';
+        renderConnectionsView(selectedApp);
+      } else if (selectedApp && enabled.includes(selectedApp)) {
+        document.getElementById('backBtn').style.display = 'inline-block';
+        renderConnectionsView(selectedApp);
+      } else {
+        showAppSelector();
+      }
+    }
+
+    function showAppSelector() {
+      selectedApp = null;
+      document.getElementById('backBtn').style.display = 'none';
+      document.getElementById('connectionsView').style.display = 'none';
+      document.getElementById('appSelectorView').style.display = 'block';
+      const grid = document.getElementById('appGrid');
+      grid.innerHTML = '';
+      (policy.enabled_apps || []).forEach(appKey => {
+        const meta = APP_META[appKey] || { name: appKey, desc: "", cls: "rdp-bg", short: appKey };
+        const count = (policy.connections || []).filter(c => c.app === appKey).length;
+        const card = document.createElement('div');
+        card.className = 'app-card';
+        card.onclick = () => { selectedApp = appKey; renderUI(); };
+        card.innerHTML = `
+          <div>
+            <div class="app-icon ${meta.cls}">${meta.short}</div>
+            <h3 style="font-size:1rem; font-weight:600;">${meta.name}</h3>
+            <p style="color:var(--muted); font-size:0.75rem; margin-top:4px;">${meta.desc}</p>
+          </div>
+          <div style="margin-top:16px; font-size:0.8rem; color:var(--accent); font-weight:600;">
+            ${count} Connection${count === 1 ? '' : 's'} →
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function renderConnectionsView(appKey) {
+      const meta = APP_META[appKey] || { name: appKey };
+      document.getElementById('appSelectorView').style.display = 'none';
+      document.getElementById('connectionsView').style.display = 'block';
+      document.getElementById('connViewTitle').textContent = `${meta.name} Connections`;
+      document.getElementById('ephemeralBox').style.display = policy.kiosk_mode.allow_ephemeral_connections ? 'block' : 'none';
+
+      const grid = document.getElementById('connGrid');
+      grid.innerHTML = '';
+      const conns = (policy.connections || []).filter(c => c.app === appKey);
+      conns.forEach(conn => {
+        const isDef = conn.id === policy.default_connection_id;
+        const card = document.createElement('div');
+        card.className = 'conn-card';
+        card.onclick = () => handleConnectionClick(conn);
+        card.innerHTML = `
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <h4 style="font-size:0.95rem; font-weight:600;">${conn.name}</h4>
+              ${isDef ? '<span class="default-star">★ DEFAULT</span>' : ''}
+            </div>
+            <p style="color:var(--muted); font-size:0.75rem; margin-top:4px; word-break:break-all;">${conn.server_url}</p>
+          </div>
+          <div style="margin-top:16px; display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:0.75rem; color:var(--muted);">${conn.all_monitors ? 'Multi-Monitor' : 'Single'}</span>
+            <button class="suggested-action" style="padding:4px 10px; font-size:0.75rem;">Launch</button>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    // SERVER CONFIG MODAL
+    function openMgmtModal() {
+      document.getElementById('mgmtUrlInput').value = currentMgmtServer;
+      document.getElementById('mgmtModal').style.display = 'flex';
+      document.getElementById('mgmtUrlInput').focus();
+    }
+    function closeMgmtModal() {
+      document.getElementById('mgmtModal').style.display = 'none';
+    }
+    async function saveMgmtServer() {
+      const newUrl = document.getElementById('mgmtUrlInput').value.trim();
+      if (!newUrl) return;
+      await fetch('/api/config/server', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: newUrl })
+      });
+      closeMgmtModal();
+      document.getElementById('statusText').textContent = "Updating Management Server...";
+      setTimeout(fetchPolicy, 500); // Wait briefly and force a poll
+    }
+
+    // RDP MODAL & CONNECTIONS
+    function handleConnectionClick(conn) {
+      if (conn.app === 'rdp') {
+        pendingRdpConn = Object.assign({}, conn);
+        document.getElementById('rdpModalTitle').textContent = conn.name;
+        document.getElementById('rdpModalServer').textContent = "Server: " + conn.server_url;
+        document.getElementById('rdpUser').value = conn.username || '';
+        document.getElementById('rdpDomain').value = conn.domain || '';
+        document.getElementById('rdpPass').value = '';
+        document.getElementById('rdpModal').style.display = 'flex';
+        document.getElementById('rdpUser').focus();
+      } else {
+        launchConnection(conn);
+      }
+    }
+    function closeRdpModal() {
+      pendingRdpConn = null;
+      document.getElementById('rdpPass').value = '';
+      document.getElementById('rdpModal').style.display = 'none';
+    }
+    async function confirmRdpLaunch() {
+      if (!pendingRdpConn) return;
+      const connToLaunch = Object.assign({}, pendingRdpConn, {
+        username: document.getElementById('rdpUser').value.trim(),
+        password: document.getElementById('rdpPass').value,
+        domain: document.getElementById('rdpDomain').value.trim()
+      });
+      closeRdpModal();
+      await launchConnection(connToLaunch);
+    }
+    async function launchConnection(conn) {
+      document.getElementById('statusText').textContent = "Launching " + conn.name + "...";
+      await fetch('/api/launch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(conn) });
+      setTimeout(fetchPolicy, 500);
+    }
+    async function launchEphemeral() {
+      const srv = document.getElementById('ephServer').value.trim();
+      if (!srv) return;
+      const conn = {
+        id: 'ephemeral-' + Date.now(), name: 'Ephemeral Session', app: selectedApp,
+        server_url: srv, domain: document.getElementById('ephDomain').value.trim(),
+        username: document.getElementById('ephUser').value.trim(), all_monitors: true, smartcard_passthrough: false
+      };
+      document.getElementById('ephServer').value = ''; document.getElementById('ephUser').value = '';
+      handleConnectionClick(conn);
+    }
+
+    // SETTINGS MODAL
+    async function openSettingsModal() {
+      document.getElementById('settingsModal').style.display = 'flex';
+      renderUSBRules();
+      const res = await fetch('/api/hardware');
+      const hw = await res.json();
+      document.getElementById('lsusbOutput').textContent = hw.lsusb || 'No USB';
+      document.getElementById('xrandrOutput').textContent = hw.xrandr || 'No Displays';
+    }
+    function renderUSBRules() {
+      const container = document.getElementById('usbRulesList');
+      container.innerHTML = '';
+      (policy.usb_rules || []).forEach((rule, idx) => {
+        const row = document.createElement('div');
+        row.className = 'usb-row';
+        row.innerHTML = `
+          <div><strong style="font-size:0.8rem;">${rule.description}</strong><span style="color:var(--muted); font-size:0.75rem; margin-left:6px;">(${rule.vid}:${rule.pid})</span></div>
+          <select onchange="updateUSBMode(${idx}, this.value)" style="font-size:0.75rem;">
+            <option value="local" ${rule.mode === 'local' ? 'selected' : ''}>Local</option>
+            <option value="redirect" ${rule.mode === 'redirect' ? 'selected' : ''}>Redirect</option>
+            <option value="split_bloomberg" ${rule.mode === 'split_bloomberg' ? 'selected' : ''}>Split (Bio)</option>
+          </select>
+        `;
+        container.appendChild(row);
+      });
+    }
+    async function updateUSBMode(idx, newMode) {
+      policy.usb_rules[idx].mode = newMode;
+      await fetch('/api/usb-rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(policy.usb_rules) });
+    }
+    function closeSettingsModal() { document.getElementById('settingsModal').style.display = 'none'; }
+    function openTerminal() { fetch('/api/terminal'); }
+
+    fetchPolicy();
+    setInterval(fetchPolicy, 3000);
+  </script>
+</body>
+</html>

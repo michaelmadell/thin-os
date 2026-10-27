@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+import os, sys
+
+os.environ["WEBKIT_DISABLE_COMPOSITING_MODE"] = "1"
+os.environ["WEBKIT_DISABLE_DMABUF_RENDERER"] = "1"
+
+import gi
+gi.require_version('Gtk', '3.0')
+try:
+    gi.require_version('WebKit2', '4.1')
+except ValueError:
+    gi.require_version('WebKit2', '4.0')
+from gi.repository import Gtk, WebKit2, Gdk
+
+class KioskWindow(Gtk.Window):
+    def __init__(self, url):
+        super().__init__(title="ThinClient Kiosk")
+
+        ctx = WebKit2.WebContext.get_default()
+        if hasattr(ctx, "set_sandbox_enabled"):
+            ctx.set_sandbox_enabled(False)
+        # Disable browser caching so F5 always pulls fresh HTML/CSS/JS
+        ctx.set_cache_model(WebKit2.CacheModel.DOCUMENT_VIEWER)
+
+        screen = Gdk.Screen.get_default()
+        w, h = screen.get_width(), screen.get_height()
+        self.set_decorated(False)
+        self.set_keep_below(True)
+        self.set_default_size(w, h)
+        self.move(0, 0)
+        self.connect("destroy", Gtk.main_quit)
+        self.connect("key-press-event", self.on_key_press)
+
+        settings = WebKit2.Settings()
+        settings.set_enable_developer_extras(True)
+        settings.set_enable_write_console_messages_to_stdout(True)
+
+        self.webview = WebKit2.WebView.new_with_context(ctx)
+        self.webview.set_settings(settings)
+        self.webview.connect("context-menu", lambda *args: True)
+        self.webview.load_uri(url)
+
+        self.add(self.webview)
+        self.show_all()
+        self.resize(w, h)
+        self.move(0, 0)
+
+    def on_key_press(self, widget, event):
+        # Press F5 or Ctrl+R inside QEMU to reload the HTML page instantly!
+        if event.keyval == Gdk.KEY_F5 or (event.state & Gdk.ModifierType.CONTROL_MASK and event.keyval == Gdk.KEY_r):
+            print("Reloading Kiosk UI...")
+            self.webview.reload_bypass_cache()
+            return True
+        return False
+
+if __name__ == "__main__":
+    url = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8080"
+    KioskWindow(url)
+    Gtk.main()

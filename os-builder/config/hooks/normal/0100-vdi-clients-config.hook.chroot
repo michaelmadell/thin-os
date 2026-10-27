@@ -1,0 +1,34 @@
+#!/bin/sh
+set -e
+
+# 1. Pre-seed Citrix icaclient silent install (Disable App Protection if it breaks WebKit/Openbox)
+echo "icaclient app_protection/install_app_protection select no" | debconf-set-selections
+
+# 2. Configure Citrix Workspace (if installed in config/packages.chroot)
+if [ -d /opt/Citrix/ICAClient ]; then
+    # Link system CA certs to Citrix keystore
+    ln -sf /etc/ssl/certs/* /opt/Citrix/ICAClient/keystore/cacerts/ || true
+    /opt/Citrix/ICAClient/util/ctx_rehash || true
+
+    # Enable H.264/H.265 GPU Hardware Decoding in module.ini
+    sed -i 's/^H264Enabled=.*/H264Enabled=True/' /opt/Citrix/ICAClient/config/module.ini || true
+    sed -i 's/^UseVideoCodec=.*/UseVideoCodec=UseIfPreferred/' /opt/Citrix/ICAClient/config/module.ini || true
+
+    # Configure Citrix Composite USB Splitting (Bloomberg Keyboard + YubiKey)
+    if [ -f /opt/Citrix/ICAClient/usb.conf ]; then
+        cat << 'USBEOF' >> /opt/Citrix/ICAClient/usb.conf
+
+# --- Custom ThinClient Composite USB Rules ---
+# Bloomberg Keyboards (VID 1188): Keep HID (03) & Audio (01) local, Redirect Biometric/Vendor
+DENY: vid=1188 class=03
+DENY: vid=1188 class=01
+ALLOW: vid=1188 split=01
+# Allow SmartCards and YubiKeys when explicitly redirected
+ALLOW: vid=1050
+USBEOF
+    fi
+fi
+
+# 3. Enable SmartCard daemon (pcscd) and Horizon/Citrix USB daemons
+systemctl enable pcscd.socket || true
+systemctl enable NetworkManager.service || true

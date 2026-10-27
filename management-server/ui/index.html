@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Management Plane</title>
+<style>
+  :root { --bg: #1e1e1e; --panel: #2d2d2d; --card: #383838; --border: #454545; --text: #fff; --accent: #3584e4; }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
+  body { background: var(--bg); color: var(--text); display: flex; height: 100vh; }
+  aside { width: 250px; background: var(--panel); border-right: 1px solid var(--border); }
+  .brand { padding: 20px; font-weight: 700; font-size: 1.1rem; color: var(--accent); border-bottom: 1px solid var(--border); }
+  .nav-item { padding: 14px 20px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  .nav-item.active { background: var(--card); border-left: 4px solid var(--accent); }
+  main { flex: 1; display: flex; flex-direction: column; }
+  header { padding: 16px 24px; background: var(--panel); border-bottom: 1px solid var(--border); font-weight: 600; display:flex; justify-content:space-between; align-items:center; }
+  .content { padding: 24px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 8px; overflow: hidden; }
+  th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--card); font-size: 0.85rem; color: #aaa; text-transform: uppercase; }
+  select, input, textarea { background: #141414; color: #fff; border: 1px solid var(--border); padding: 8px; border-radius: 4px; }
+  button { background: var(--accent); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  button:hover { background: #1b71db; }
+  .gui-group { background: var(--panel); border: 1px solid var(--border); padding: 16px; border-radius: 8px; margin-bottom: 20px; }
+  .gui-group h3 { font-size: 1rem; margin-bottom: 12px; color: var(--accent); }
+  .toggle-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+  <aside>
+    <div class="brand">Control Plane</div>
+    <div class="nav-item active" onclick="showTab('devices')">Active Devices</div>
+    <div class="nav-item" onclick="showTab('profiles')">Profile Manager</div>
+  </aside>
+
+  <main>
+    <header>
+      <span id="pageHeader">Device Inventory</span>
+      <span id="saveStatus" style="color:#26a269; display:none;">Saved Successfully!</span>
+    </header>
+    <div class="content">
+      
+      <div id="tab-devices">
+        <table>
+          <thead><tr><th>Hostname</th><th>IP</th><th>Assigned Profile</th><th>Action</th></tr></thead>
+          <tbody id="deviceTableBody"></tbody>
+        </table>
+      </div>
+
+      <div id="tab-profiles" style="display:none; max-width:800px;">
+        <div style="display:flex; gap:10px; margin-bottom:20px;">
+          <select id="profileSelect" onchange="loadSelectedProfile()"></select>
+          <button onclick="createNewProfile()">+ New Profile</button>
+        </div>
+
+        <div class="gui-group">
+          <h3>General Settings</h3>
+          <div class="toggle-row">
+            <label style="width:150px;">Profile Name:</label>
+            <input type="text" id="p_name" style="flex:1;">
+          </div>
+        </div>
+
+        <div class="gui-group">
+          <h3>Kiosk Feature Toggles</h3>
+          <div class="toggle-row"><input type="checkbox" id="k_eph"> Allow Ephemeral (Quick Connect)</div>
+          <div class="toggle-row"><input type="checkbox" id="k_usb"> Allow User USB Toggling</div>
+          <div class="toggle-row"><input type="checkbox" id="k_disp"> Allow User Display Toggling</div>
+          <div class="toggle-row"><input type="checkbox" id="k_auto"> Auto-Launch Default Connection</div>
+        </div>
+
+        <div class="gui-group">
+          <h3>Enabled Applications</h3>
+          <div class="toggle-row">
+            <label><input type="checkbox" class="app-chk" value="horizon"> Horizon</label>
+            <label><input type="checkbox" class="app-chk" value="citrix"> Citrix</label>
+            <label><input type="checkbox" class="app-chk" value="dcv"> Amazon DCV</label>
+            <label><input type="checkbox" class="app-chk" value="rdp"> RDP</label>
+          </div>
+        </div>
+
+        <div class="gui-group">
+          <h3>Connections & USB Rules (JSON Array)</h3>
+          <p style="font-size:0.8rem; color:#aaa; margin-bottom:8px;">Ensure strict JSON format: use double quotes and no trailing commas!</p>
+          <textarea id="p_connections" style="width:100%; height:150px; font-family:monospace; margin-bottom:10px;"></textarea>
+          <textarea id="p_usb" style="width:100%; height:100px; font-family:monospace;"></textarea>
+        </div>
+
+        <button onclick="saveProfile()" style="width:100%;">Deploy Profile Changes</button>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    let allProfiles = [];
+
+    function showTab(tab) {
+      document.getElementById('tab-devices').style.display = tab === 'devices' ? 'block' : 'none';
+      document.getElementById('tab-profiles').style.display = tab === 'profiles' ? 'block' : 'none';
+      document.getElementById('pageHeader').textContent = tab === 'devices' ? 'Device Inventory' : 'Profile Manager';
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+    }
+
+    async function loadDevices() {
+      const res = await fetch('/api/v1/admin/devices');
+      const devices = await res.json();
+      const tbody = document.getElementById('deviceTableBody');
+      tbody.innerHTML = '';
+      
+      const profileOptions = allProfiles.map(p => `<option value="${p.profile_name}">${p.profile_name}</option>`).join('');
+
+      devices.forEach(d => {
+        let selectHtml = `<select onchange="assignProfile('${d.hostname}', this.value)">
+          ${profileOptions.replace(`value="${d.profile}"`, `value="${d.profile}" selected`)}
+        </select>`;
+
+        tbody.innerHTML += `<tr>
+          <td><strong>${d.hostname}</strong></td>
+          <td>${d.ip_address}</td>
+          <td>${d.profile}</td>
+          <td>${selectHtml}</td>
+        </tr>`;
+      });
+    }
+
+    async function assignProfile(hostname, profileName) {
+      await fetch('/api/v1/admin/assign', { method:'POST', body: JSON.stringify({hostname, profile: profileName}) });
+      toast();
+    }
+
+    async function loadProfiles() {
+      const res = await fetch('/api/v1/admin/profiles');
+      allProfiles = await res.json();
+      const select = document.getElementById('profileSelect');
+      const currentSelection = select.value;
+      
+      select.innerHTML = allProfiles.map(p => `<option value="${p.profile_name}">${p.profile_name}</option>`).join('');
+      
+      if(currentSelection && allProfiles.find(p => p.profile_name === currentSelection)) {
+          select.value = currentSelection;
+      }
+      loadSelectedProfile();
+    }
+
+    function loadSelectedProfile() {
+      const name = document.getElementById('profileSelect').value;
+      const p = allProfiles.find(x => x.profile_name === name);
+      if(!p) return;
+
+      document.getElementById('p_name').value = p.profile_name;
+      document.getElementById('k_eph').checked = p.kiosk_mode.allow_ephemeral_connections;
+      document.getElementById('k_usb').checked = p.kiosk_mode.allow_local_usb_config;
+      document.getElementById('k_disp').checked = p.kiosk_mode.allow_local_display_audio_config;
+      document.getElementById('k_auto').checked = p.kiosk_mode.auto_launch_default_connection;
+
+      document.querySelectorAll('.app-chk').forEach(chk => {
+        chk.checked = (p.enabled_apps || []).includes(chk.value);
+      });
+
+      document.getElementById('p_connections').value = JSON.stringify(p.connections || [], null, 2);
+      document.getElementById('p_usb').value = JSON.stringify(p.usb_rules || [], null, 2);
+    }
+
+    function createNewProfile() {
+      const p = JSON.parse(JSON.stringify(allProfiles[0] || {})); 
+      p.profile_name = "New Profile " + Date.now();
+      p.connections = [];
+      p.usb_rules = [];
+      allProfiles.push(p);
+      const select = document.getElementById('profileSelect');
+      select.innerHTML += `<option value="${p.profile_name}">${p.profile_name}</option>`;
+      select.value = p.profile_name;
+      loadSelectedProfile();
+    }
+
+    async function saveProfile() {
+      try {
+        const connsText = document.getElementById('p_connections').value.trim() || "[]";
+        const usbText = document.getElementById('p_usb').value.trim() || "[]";
+        
+        // Strict JSON parsing check!
+        const parsedConnections = JSON.parse(connsText);
+        const parsedUsb = JSON.parse(usbText);
+
+        const p = {
+          profile_name: document.getElementById('p_name').value.trim(),
+          management_server_url: "http://10.0.2.2:9090",
+          kiosk_mode: {
+            allow_ephemeral_connections: document.getElementById('k_eph').checked,
+            allow_local_usb_config: document.getElementById('k_usb').checked,
+            allow_local_display_audio_config: document.getElementById('k_disp').checked,
+            auto_launch_default_connection: document.getElementById('k_auto').checked
+          },
+          enabled_apps: Array.from(document.querySelectorAll('.app-chk:checked')).map(c => c.value),
+          connections: parsedConnections,
+          usb_rules: parsedUsb
+        };
+
+        const res = await fetch('/api/v1/admin/profile/save', { method:'POST', body: JSON.stringify(p) });
+        if (!res.ok) {
+            const err = await res.text();
+            throw new Error(err);
+        }
+
+        toast();
+        await loadProfiles();
+      } catch (err) {
+        alert("Failed to save!\n\nIf you edited the Connections or USB rules, ensure there are NO trailing commas and that all keys have double quotes.\n\nError: " + err.message);
+      }
+    }
+
+    function toast() {
+      const s = document.getElementById('saveStatus');
+      s.style.display = 'block';
+      setTimeout(() => s.style.display='none', 2000);
+    }
+
+    loadProfiles().then(() => loadDevices());
+    setInterval(loadDevices, 5000);
+  </script>
+</body>
+</html>

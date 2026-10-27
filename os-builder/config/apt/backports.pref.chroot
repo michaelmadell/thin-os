@@ -1,0 +1,3 @@
+Package: linux-image-amd64 linux-headers-amd64 firmware-misc-nonfree firmware-intel-sound firmware-iwlwifi intel-media-va-driver-non-free libva2 libva-drm2 libva-x11-2 mesa-va-drivers mesa-vulkan-drivers freerdp3-x11 libfreerdp3-3 libfreerdp-client3-3 libwinpr3-3
+Pin: release n=bookworm-backports
+Pin-Priority: 600

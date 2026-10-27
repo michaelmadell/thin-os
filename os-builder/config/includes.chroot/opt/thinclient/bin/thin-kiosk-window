@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+import os, sys
+
+os.environ["WEBKIT_DISABLE_COMPOSITING_MODE"] = "1"
+os.environ["WEBKIT_DISABLE_DMABUF_RENDERER"] = "1"
+
+import gi
+gi.require_version('Gtk', '3.0')
+try:
+    gi.require_version('WebKit2', '4.1')
+except ValueError:
+    gi.require_version('WebKit2', '4.0')
+from gi.repository import Gtk, WebKit2, Gdk
+
+class KioskWindow(Gtk.Window):
+    def __init__(self, url):
+        super().__init__(title="ThinClient Kiosk")
+
+        ctx = WebKit2.WebContext.get_default()
+        if hasattr(ctx, "set_sandbox_enabled"):
+            ctx.set_sandbox_enabled(False)
+        ctx.set_cache_model(WebKit2.CacheModel.DOCUMENT_VIEWER)
+
+        self.set_decorated(False)
+        self.set_keep_below(True)
+
+        # --- MULTI-MONITOR FIX ---
+        # Get ONLY the primary monitor (or monitor 0), ignoring the giant stitched X11 canvas
+        display = Gdk.Display.get_default()
+        monitor = display.get_primary_monitor()
+        if not monitor:
+            monitor = display.get_monitor(0)
+        
+        if monitor:
+            geom = monitor.get_geometry()
+            self.set_default_size(geom.width, geom.height)
+            self.move(geom.x, geom.y)
+        else:
+            # Fallback if no monitors are detected
+            screen = Gdk.Screen.get_default()
+            self.set_default_size(screen.get_width(), screen.get_height())
+            self.move(0, 0)
+
+        self.connect("destroy", Gtk.main_quit)
+        self.connect("key-press-event", self.on_key_press)
+
+        settings = WebKit2.Settings()
+        settings.set_enable_developer_extras(True)
+        settings.set_enable_write_console_messages_to_stdout(True)
+
+        self.webview = WebKit2.WebView.new_with_context(ctx)
+        self.webview.set_settings(settings)
+        self.webview.connect("context-menu", lambda *args: True)
+        self.webview.load_uri(url)
+
+        self.add(self.webview)
+        self.show_all()
+
+        # Enforce size and position again after show_all just to be safe
+        if monitor:
+            self.resize(geom.width, geom.height)
+            self.move(geom.x, geom.y)
+
+    def on_key_press(self, widget, event):
+        if event.keyval == Gdk.KEY_F5 or (event.state & Gdk.ModifierType.CONTROL_MASK and event.keyval == Gdk.KEY_r):
+            self.webview.reload_bypass_cache()
+            return True
+        return False
+
+if __name__ == "__main__":
+    url = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8080"
+    KioskWindow(url)
+    Gtk.main()

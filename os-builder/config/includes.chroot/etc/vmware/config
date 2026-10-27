@@ -1,0 +1,8 @@
+# Allow Composite USB Device Interface Splitting (Bloomberg Keyboard 4 & 5)
+# VID 0x1188 (Bloomberg): Keep Keyboard (HID) & Audio local, redirect Biometric B-Unit
+usb.quirks.device0 = "0x1188:0x9545 allow"
+usb.quirks.device1 = "0x1188:0x9525 allow"
+usb.quirks.device2 = "0x1188:0x03e9 allow"
+viewusb.Splitad = "TRUE"
+viewusb.ExcludeFamily = "hid;audio-in;audio-out"
+viewusb.IncludeFamily = "other;security;smart-card;vendor"
